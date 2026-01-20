@@ -1,4 +1,4 @@
-# 🛠️ GNB System - Gestión de Activos y Mantenimiento
+# 🛠️ Gestión de Activos y Mantenimiento
 
 ![Status](https://img.shields.io/badge/Status-Live-success)
 ![Python](https://img.shields.io/badge/Python-3.11-blue)

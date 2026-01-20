@@ -289,7 +289,67 @@ def ver_historial(equipo_id):
     # Trae el historial ordenado del más nuevo al más viejo
     historial = Mantenimiento.query.filter_by(equipo_id=equipo_id).order_by(Mantenimiento.fecha.desc()).all()
     return jsonify([h.to_dict() for h in historial])
+# --- API DE GESTIÓN DE USUARIOS (NUEVO) ---
 
+@app.route('/api/usuarios', methods=['GET'])
+@login_required
+def obtener_usuarios():
+    # Solo el admin real puede ver usuarios (Opcional: o todos menos invitado)
+    if current_user.username == 'invitado':
+        return jsonify({"mensaje": "Acceso denegado"}), 403
+        
+    usuarios = User.query.all()
+    # Devolvemos la lista, PERO NUNCA devolvemos la contraseña hash (por seguridad)
+    lista = [{"id": u.id, "username": u.username} for u in usuarios]
+    return jsonify(lista)
+
+@app.route('/api/usuarios', methods=['POST'])
+@login_required
+def crear_usuario():
+    if current_user.username == 'invitado':
+        return jsonify({"mensaje": "Modo Invitado: No puedes crear usuarios"}), 403
+
+    datos = request.json
+    username_nuevo = datos.get('username')
+    password_nuevo = datos.get('password')
+
+    if not username_nuevo or not password_nuevo:
+        return jsonify({"mensaje": "Faltan datos"}), 400
+
+    # Validar que no exista ya
+    if User.query.filter_by(username=username_nuevo).first():
+        return jsonify({"mensaje": "El usuario ya existe"}), 400
+
+    try:
+        nuevo_user = User(username=username_nuevo)
+        nuevo_user.set_password(password_nuevo) # ¡Aquí se encripta automáticamente! 🔒
+        db.session.add(nuevo_user)
+        db.session.commit()
+        return jsonify({"mensaje": "Usuario creado exitosamente"})
+    except Exception as e:
+        return jsonify({"mensaje": f"Error: {str(e)}"}), 400
+
+@app.route('/api/usuarios/<int:user_id>', methods=['DELETE'])
+@login_required
+def eliminar_usuario(user_id):
+    if current_user.username == 'invitado':
+        return jsonify({"mensaje": "Modo Invitado: No puedes eliminar"}), 403
+
+    # SEGURO ANTI-SUICIDIO: No permitir que el admin se borre a sí mismo
+    if current_user.id == user_id:
+        return jsonify({"mensaje": "❌ No puedes eliminar tu propio usuario mientras estás conectado."}), 400
+
+    user_a_borrar = User.query.get(user_id)
+    if user_a_borrar:
+        # Proteger al usuario 'admin' original y al 'invitado' para no romper el sistema
+        if user_a_borrar.username in ['admin', 'invitado']:
+             return jsonify({"mensaje": "⚠️ No se pueden eliminar los usuarios del sistema (admin/invitado)."}), 400
+             
+        db.session.delete(user_a_borrar)
+        db.session.commit()
+        return jsonify({"mensaje": "Usuario eliminado"})
+    
+    return jsonify({"mensaje": "Usuario no encontrado"}), 404
 # --- PDF ---
 @app.route('/exportar-pdf')
 @login_required

@@ -15,16 +15,17 @@
         .search-box i { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #aaa; }
         .search-box input { padding-left: 40px; border-radius: 20px; }
         .chart-container { position: relative; height: 100px; width: 100px; margin: 0 auto; }
-        /* Estilo para el historial */
+        /* Estilos Historial y Usuarios */
         .historial-item { border-left: 3px solid #0d6efd; background-color: #f8f9fa; }
         .historial-meta { font-size: 0.85rem; color: #6c757d; }
+        .user-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee; }
     </style>
 </head>
 <body>
 
 <div class="container-fluid">
     <div class="row">
-        <div class="col-md-2 sidebar p-0">
+        <div class="col-md-2 sidebar p-0 d-flex flex-column">
             <div class="p-3 text-center border-bottom border-secondary">
                 <h4>🛠️ GNB Mant.</h4>
                 <small class="text-muted">
@@ -46,9 +47,13 @@
             </div>
 
             {% if user.username != 'invitado' %}
-            <div class="p-3 mt-4">
-                <button class="btn btn-primary w-100 btn-sm" data-bs-toggle="modal" data-bs-target="#modalCliente">
+            <div class="p-3 mt-2">
+                <button class="btn btn-primary w-100 btn-sm mb-2" data-bs-toggle="modal" data-bs-target="#modalCliente">
                     <i class="fas fa-plus"></i> Nuevo Cliente
+                </button>
+                
+                <button class="btn btn-outline-light w-100 btn-sm" onclick="abrirUsuarios()">
+                    <i class="fas fa-users-cog"></i> Usuarios
                 </button>
             </div>
             {% endif %}
@@ -129,7 +134,8 @@
                                 <th>Serial</th>
                                 <th>Ubicación</th>
                                 <th>Cliente</th>
-                                <th>Obs.</th> <th class="text-end">Acciones</th>
+                                <th>Obs.</th>
+                                <th class="text-end">Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -153,7 +159,7 @@
                                 </td>
 
                                 <td class="text-end">
-                                    <button class="btn btn-sm btn-outline-info me-1" title="Ver Historial Completo" onclick="abrirHistorial({{ equipo.id }}, '{{ equipo.nombre }}')">
+                                    <button class="btn btn-sm btn-outline-info me-1" title="Ver Historial" onclick="abrirHistorial({{ equipo.id }}, '{{ equipo.nombre }}')">
                                         <i class="fas fa-history"></i>
                                     </button>
 
@@ -169,7 +175,8 @@
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="8" class="text-center py-5 text-muted"> <i class="fas fa-box-open fa-3x mb-3"></i><br>
+                                <td colspan="8" class="text-center py-5 text-muted">
+                                    <i class="fas fa-box-open fa-3x mb-3"></i><br>
                                     No hay equipos registrados aún.
                                 </td>
                             </tr>
@@ -184,6 +191,42 @@
                 </div>
             </div>
 
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modalUsuarios" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">👥 Gestión de Usuarios</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                
+                <div class="card mb-3 bg-light border-0">
+                    <div class="card-body">
+                        <h6>Nuevo Usuario</h6>
+                        <form id="formUsuario">
+                            <div class="input-group mb-2">
+                                <span class="input-group-text"><i class="fas fa-user"></i></span>
+                                <input type="text" class="form-control" name="username" placeholder="Usuario" required>
+                            </div>
+                            <div class="input-group mb-2">
+                                <span class="input-group-text"><i class="fas fa-key"></i></span>
+                                <input type="password" class="form-control" name="password" placeholder="Contraseña" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100 btn-sm">Crear Usuario</button>
+                        </form>
+                    </div>
+                </div>
+
+                <h6>Usuarios Activos</h6>
+                <div id="listaUsuarios" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+                    <div class="text-center text-muted">Cargando...</div>
+                </div>
+
+            </div>
         </div>
     </div>
 </div>
@@ -258,8 +301,8 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label>Observaciones (Nota Actual)</label>
-                        <textarea class="form-control" name="observaciones" rows="2" placeholder="Ej: Cable suelto (Esto se muestra en la tabla)"></textarea>
+                        <label>Observaciones</label>
+                        <textarea class="form-control" name="observaciones" rows="2"></textarea>
                     </div>
                     <button type="submit" class="btn btn-success w-100">Guardar Equipo</button>
                 </form>
@@ -280,7 +323,7 @@
                 {% if user.username != 'invitado' %}
                 <div class="card mb-4 border-0 bg-light">
                     <div class="card-body">
-                        <h6 class="card-subtitle mb-2 text-muted">Agregar Evento a la Bitácora</h6>
+                        <h6 class="card-subtitle mb-2 text-muted">Agregar Evento</h6>
                         <form id="formHistorial">
                             <input type="hidden" id="historialEquipoId">
                             <div class="input-group">
@@ -292,7 +335,6 @@
                 </div>
                 {% endif %}
 
-                <h6 class="text-muted">Eventos Anteriores</h6>
                 <div id="listaEventos" class="list-group list-group-flush">
                     <div class="text-center py-3"><div class="spinner-border text-primary"></div></div>
                 </div>
@@ -306,6 +348,79 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
+    // --- LÓGICA DE USUARIOS (NUEVO) ---
+    const modalUsuarios = new bootstrap.Modal(document.getElementById('modalUsuarios'));
+
+    // Función para abrir modal y cargar lista
+    window.abrirUsuarios = async () => {
+        modalUsuarios.show();
+        cargarListaUsuarios();
+    };
+
+    async function cargarListaUsuarios() {
+        const contenedor = document.getElementById('listaUsuarios');
+        contenedor.innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
+        
+        try {
+            const res = await fetch('/api/usuarios');
+            if (!res.ok) throw new Error("No autorizado");
+            const usuarios = await res.json();
+            
+            contenedor.innerHTML = '';
+            usuarios.forEach(u => {
+                const item = document.createElement('div');
+                item.className = 'user-item';
+                // No permitir borrar admin ni invitado (visual)
+                const esProtegido = (u.username === 'admin' || u.username === 'invitado');
+                const botonBorrar = esProtegido ? 
+                    '<span class="badge bg-secondary">Sistema</span>' : 
+                    `<button class="btn btn-sm btn-outline-danger" onclick="eliminarUsuario(${u.id})"><i class="fas fa-trash"></i></button>`;
+                
+                item.innerHTML = `
+                    <span class="fw-bold"><i class="fas fa-user-circle me-2 text-secondary"></i>${u.username}</span>
+                    ${botonBorrar}
+                `;
+                contenedor.appendChild(item);
+            });
+        } catch (error) {
+            contenedor.innerHTML = '<div class="text-danger small">Error cargando usuarios.</div>';
+        }
+    }
+
+    // Crear Usuario
+    document.getElementById('formUsuario').onsubmit = async (e) => {
+        e.preventDefault();
+        const data = {
+            username: e.target.username.value,
+            password: e.target.password.value
+        };
+        const res = await fetch('/api/usuarios', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const result = await res.json();
+        if(res.ok) {
+            e.target.reset(); // Limpiar form
+            cargarListaUsuarios(); // Recargar lista
+            alert("Usuario creado correctamente");
+        } else {
+            alert(result.mensaje);
+        }
+    };
+
+    // Eliminar Usuario
+    window.eliminarUsuario = async (id) => {
+        if(!confirm('¿Seguro que deseas eliminar este usuario?')) return;
+        const res = await fetch(`/api/usuarios/${id}`, { method: 'DELETE' });
+        const result = await res.json();
+        if(res.ok) {
+            cargarListaUsuarios();
+        } else {
+            alert(result.mensaje);
+        }
+    };
+
     // --- GRÁFICO ---
     const estados = {{ equipos | map(attribute='estado') | list | tojson }};
     const conteoOperativo = estados.filter(e => e === 'Operativo').length;
@@ -403,7 +518,7 @@
         };
     }
 
-    // --- OTROS FORMULARIOS ---
+    // --- CLIENTE Y EQUIPO ---
     document.getElementById('formCliente').onsubmit = async (e) => {
         e.preventDefault();
         const res = await fetch('/api/clientes', {

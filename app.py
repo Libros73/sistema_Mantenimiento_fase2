@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
@@ -39,7 +40,8 @@ login_manager.login_view = 'login'
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# --- MODELOS ---
+# --- MODELOS DE BASE DE DATOS ---
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True, nullable=False)
@@ -66,8 +68,10 @@ class Equipo(db.Model):
     estado = db.Column(db.String(20), default="Operativo")
     observaciones = db.Column(db.String(300), nullable=True)
     cliente_id = db.Column(db.Integer, db.ForeignKey('cliente.id'), nullable=False)
+    
+    # Relación con mantenimientos (si borras equipo, se borra su historial)
+    mantenimientos = db.relationship('Mantenimiento', backref='equipo_rel', lazy=True, cascade="all, delete-orphan")
 
-    # ESTA ES LA FUNCIÓN NUEVA QUE ARREGLA EL ERROR
     def to_dict(self):
         return {
             'id': self.id,
@@ -80,7 +84,25 @@ class Equipo(db.Model):
             'cliente_id': self.cliente_id
         }
 
-# --- RUTAS ---
+# --- NUEVA TABLA: HISTORIAL DE MANTENIMIENTO ---
+class Mantenimiento(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    fecha = db.Column(db.DateTime, default=datetime.utcnow) # Fecha automática
+    descripcion = db.Column(db.String(500), nullable=False) # Qué se hizo
+    usuario = db.Column(db.String(100), nullable=False)     # Quién lo hizo (Auditoría)
+    equipo_id = db.Column(db.Integer, db.ForeignKey('equipo.id'), nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'fecha': self.fecha.strftime('%Y-%m-%d %H:%M'), # Formato legible
+            'descripcion': self.descripcion,
+            'usuario': self.usuario,
+            'equipo_id': self.equipo_id
+        }
+
+# --- RUTAS DE NAVEGACIÓN ---
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -119,7 +141,9 @@ def logout():
 def setup_db():
     try:
         with app.app_context():
-            db.create_all()
+            db.create_all() # ¡ESTO CREARÁ LA NUEVA TABLA DE MANTENIMIENTO!
+            
+            # Crear usuarios base
             if not User.query.filter_by(username='admin').first():
                 admin = User(username='admin')
                 admin.set_password('admin123')
@@ -130,6 +154,7 @@ def setup_db():
                 guest.set_password('invitado')
                 db.session.add(guest)
 
+            # Crear clientes base
             if not Cliente.query.first():
                 c1 = Cliente(nombre="GNB Sudameris - Torre A", direccion="Calle 72")
                 c2 = Cliente(nombre="Edificio Avianca", direccion="Calle 26")
@@ -137,7 +162,7 @@ def setup_db():
                 db.session.add(c2)
             
             db.session.commit()
-            return "✅ SETUP COMPLETO. Usuarios 'admin' e 'invitado' creados."
+            return "✅ SETUP COMPLETO. Tabla de Mantenimiento creada."
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
@@ -160,7 +185,8 @@ def dashboard():
                            cliente_actual=cliente_actual,
                            user=current_user)
 
-# --- API ---
+# --- API (CRUD) ---
+
 @app.route('/api/clientes', methods=['GET'])
 @login_required
 def obtener_clientes():
@@ -236,6 +262,34 @@ def eliminar_equipo(id):
         return jsonify({"mensaje": "Eliminado"})
     return jsonify({"mensaje": "No encontrado"}), 404
 
+# --- API NUEVA: HISTORIAL DE MANTENIMIENTO ---
+
+@app.route('/api/mantenimientos', methods=['POST'])
+@login_required
+def agregar_mantenimiento():
+    if current_user.username == 'invitado':
+        return jsonify({"mensaje": "⚠️ Modo Invitado: Solo lectura"}), 403
+
+    data = request.json
+    try:
+        nuevo_mant = Mantenimiento(
+            descripcion=data['descripcion'],
+            usuario=current_user.username, # <--- ¡AQUÍ GUARDAMOS QUIÉN FUE!
+            equipo_id=data['equipo_id']
+        )
+        db.session.add(nuevo_mant)
+        db.session.commit()
+        return jsonify({"mensaje": "Mantenimiento registrado"})
+    except Exception as e:
+        return jsonify({"mensaje": f"Error: {str(e)}"}), 400
+
+@app.route('/api/mantenimientos/<int:equipo_id>', methods=['GET'])
+@login_required
+def ver_historial(equipo_id):
+    # Trae el historial ordenado del más nuevo al más viejo
+    historial = Mantenimiento.query.filter_by(equipo_id=equipo_id).order_by(Mantenimiento.fecha.desc()).all()
+    return jsonify([h.to_dict() for h in historial])
+
 # --- PDF ---
 @app.route('/exportar-pdf')
 @login_required
@@ -264,16 +318,27 @@ def exportar_pdf():
             c.showPage()
             y = 750
         
+        # QR
         qr = qrcode.make(f"ID:{eq.id}-SN:{eq.serial}")
         qr_mem = io.BytesIO()
         qr.save(qr_mem, format="PNG")
         qr_mem.seek(0)
         c.drawImage(ImageReader(qr_mem), 50, y-10, 40, 40)
         
+        # Texto
         c.setFont("Helvetica-Bold", 12)
         c.drawString(100, y+20, f"{eq.nombre} ({eq.estado})")
         c.setFont("Helvetica", 10)
         c.drawString(100, y+5, f"{eq.tipo} | SN: {eq.serial} | {eq.ubicacion}")
+        
+        # Opcional: Mostrar último mantenimiento en PDF
+        if eq.mantenimientos:
+            ultimo = eq.mantenimientos[-1] # El último de la lista (o ordenarlo)
+            c.setFillColor(colors.gray)
+            c.setFont("Helvetica-Oblique", 9)
+            c.drawString(100, y-8, f"Último evento: {ultimo.descripcion} ({ultimo.fecha.strftime('%d/%m')}) por {ultimo.usuario}")
+            c.setFillColor(colors.black)
+
         y -= 60
         
     c.save()

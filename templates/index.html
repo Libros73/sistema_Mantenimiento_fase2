@@ -14,8 +14,10 @@
         .search-box { position: relative; }
         .search-box i { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #aaa; }
         .search-box input { padding-left: 40px; border-radius: 20px; }
-        /* Ajuste para el gráfico */
         .chart-container { position: relative; height: 100px; width: 100px; margin: 0 auto; }
+        /* Estilo para el historial */
+        .historial-item { border-left: 3px solid #0d6efd; background-color: #f8f9fa; }
+        .historial-meta { font-size: 0.85rem; color: #6c757d; }
     </style>
 </head>
 <body>
@@ -80,7 +82,6 @@
             </div>
 
             <div class="row mb-4 align-items-center">
-                
                 <div class="col-md-3">
                     <div class="card border-0 shadow-sm">
                         <div class="card-body d-flex align-items-center justify-content-between">
@@ -128,9 +129,7 @@
                                 <th>Serial</th>
                                 <th>Ubicación</th>
                                 <th>Cliente</th>
-                                {% if user.username != 'invitado' %}
-                                <th class="text-end">Acciones</th>
-                                {% endif %}
+                                <th>Obs.</th> <th class="text-end">Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -149,27 +148,34 @@
                                 <td>{{ equipo.ubicacion }}</td>
                                 <td><small class="text-muted">{{ equipo.cliente.nombre }}</small></td>
                                 
-                                {% if user.username != 'invitado' %}
+                                <td style="max-width: 150px;" class="text-truncate" title="{{ equipo.observaciones }}">
+                                    <small class="text-muted">{{ equipo.observaciones or '-' }}</small>
+                                </td>
+
                                 <td class="text-end">
-                                    <button class="btn btn-sm btn-outline-primary me-1" onclick='abrirEditar({{ equipo.to_dict()|tojson }})'>
+                                    <button class="btn btn-sm btn-outline-info me-1" title="Ver Historial Completo" onclick="abrirHistorial({{ equipo.id }}, '{{ equipo.nombre }}')">
+                                        <i class="fas fa-history"></i>
+                                    </button>
+
+                                    {% if user.username != 'invitado' %}
+                                    <button class="btn btn-sm btn-outline-primary me-1" title="Editar" onclick='abrirEditar({{ equipo.to_dict()|tojson }})'>
                                         <i class="fas fa-edit"></i>
                                     </button>
-                                    <button class="btn btn-sm btn-outline-danger" onclick="eliminarEquipo({{ equipo.id }})">
+                                    <button class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="eliminarEquipo({{ equipo.id }})">
                                         <i class="fas fa-trash"></i>
                                     </button>
+                                    {% endif %}
                                 </td>
-                                {% endif %}
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="7" class="text-center py-5 text-muted">
-                                    <i class="fas fa-box-open fa-3x mb-3"></i><br>
+                                <td colspan="8" class="text-center py-5 text-muted"> <i class="fas fa-box-open fa-3x mb-3"></i><br>
                                     No hay equipos registrados aún.
                                 </td>
                             </tr>
                             {% endfor %}
                             <tr id="sinResultados" style="display: none;">
-                                <td colspan="7" class="text-center py-4 text-muted">
+                                <td colspan="8" class="text-center py-4 text-muted">
                                     🔍 No se encontraron equipos.
                                 </td>
                             </tr>
@@ -252,8 +258,8 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label>Observaciones</label>
-                        <textarea class="form-control" name="observaciones" rows="2"></textarea>
+                        <label>Observaciones (Nota Actual)</label>
+                        <textarea class="form-control" name="observaciones" rows="2" placeholder="Ej: Cable suelto (Esto se muestra en la tabla)"></textarea>
                     </div>
                     <button type="submit" class="btn btn-success w-100">Guardar Equipo</button>
                 </form>
@@ -262,17 +268,49 @@
     </div>
 </div>
 
+<div class="modal fade" id="modalHistorial" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-light">
+                <h5 class="modal-title">📜 Historial: <span id="tituloHistorialEquipo" class="fw-bold"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                
+                {% if user.username != 'invitado' %}
+                <div class="card mb-4 border-0 bg-light">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Agregar Evento a la Bitácora</h6>
+                        <form id="formHistorial">
+                            <input type="hidden" id="historialEquipoId">
+                            <div class="input-group">
+                                <textarea class="form-control" id="descHistorial" rows="1" placeholder="Ej: Se realizó cambio de filtro..." required></textarea>
+                                <button class="btn btn-primary" type="submit">Guardar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                {% endif %}
+
+                <h6 class="text-muted">Eventos Anteriores</h6>
+                <div id="listaEventos" class="list-group list-group-flush">
+                    <div class="text-center py-3"><div class="spinner-border text-primary"></div></div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <script>
-    // --- 1. LÓGICA DEL GRÁFICO (Chart.js) ---
-    // Usamos Jinja para pasar los estados a una lista JS
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    // --- GRÁFICO ---
     const estados = {{ equipos | map(attribute='estado') | list | tojson }};
-    
-    // Contamos cuántos de cada uno
     const conteoOperativo = estados.filter(e => e === 'Operativo').length;
     const conteoFalla = estados.filter(e => e === 'Falla').length;
 
-    // Dibujamos el gráfico
     const ctx = document.getElementById('graficoEstado').getContext('2d');
     new Chart(ctx, {
         type: 'doughnut',
@@ -280,29 +318,25 @@
             labels: ['Operativo', 'Falla'],
             datasets: [{
                 data: [conteoOperativo, conteoFalla],
-                backgroundColor: ['#198754', '#dc3545'], // Verde y Rojo Bootstrap
-                borderWidth: 0,
-                hoverOffset: 4
+                backgroundColor: ['#198754', '#dc3545'],
+                borderWidth: 0
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false } // Ocultamos leyenda interna para usar la nuestra personalizada
-            },
-            cutout: '70%' // Hace la dona más delgada y elegante
+            plugins: { legend: { display: false } },
+            cutout: '70%'
         }
     });
 
-    // --- 2. LÓGICA DEL BUSCADOR ---
+    // --- BUSCADOR ---
     document.getElementById('inputBuscador').addEventListener('keyup', function() {
         let texto = this.value.toLowerCase();
         let filas = document.querySelectorAll('.fila-equipo');
         let hayResultados = false;
         filas.forEach(fila => {
-            let contenido = fila.innerText.toLowerCase();
-            if (contenido.includes(texto)) {
+            if (fila.innerText.toLowerCase().includes(texto)) {
                 fila.style.display = '';
                 hayResultados = true;
             } else {
@@ -312,13 +346,72 @@
         document.getElementById('sinResultados').style.display = hayResultados ? 'none' : '';
     });
 
-    // --- 3. LÓGICA DE FORMULARIOS (Igual que antes) ---
+    // --- LÓGICA DE HISTORIAL ---
+    const modalHistorial = new bootstrap.Modal(document.getElementById('modalHistorial'));
+
+    window.abrirHistorial = async (id, nombre) => {
+        document.getElementById('tituloHistorialEquipo').innerText = nombre;
+        document.getElementById('historialEquipoId').value = id;
+        document.getElementById('listaEventos').innerHTML = '<div class="text-center py-3"><div class="spinner-border text-primary"></div></div>';
+        
+        modalHistorial.show();
+
+        const res = await fetch(`/api/mantenimientos/${id}`);
+        const historial = await res.json();
+        
+        const contenedor = document.getElementById('listaEventos');
+        contenedor.innerHTML = '';
+
+        if (historial.length === 0) {
+            contenedor.innerHTML = '<div class="text-center text-muted py-3">No hay registros de mantenimiento.</div>';
+        } else {
+            historial.forEach(h => {
+                const item = document.createElement('div');
+                item.className = 'list-group-item historial-item mb-2 rounded';
+                item.innerHTML = `
+                    <div class="d-flex w-100 justify-content-between">
+                        <small class="fw-bold text-primary">${h.usuario}</small>
+                        <small class="historial-meta">${h.fecha}</small>
+                    </div>
+                    <p class="mb-1">${h.descripcion}</p>
+                `;
+                contenedor.appendChild(item);
+            });
+        }
+    };
+
+    const formHistorial = document.getElementById('formHistorial');
+    if(formHistorial) {
+        formHistorial.onsubmit = async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('historialEquipoId').value;
+            const desc = document.getElementById('descHistorial').value;
+            
+            const res = await fetch('/api/mantenimientos', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ equipo_id: id, descripcion: desc })
+            });
+
+            if(res.ok) {
+                document.getElementById('descHistorial').value = ''; 
+                const nombre = document.getElementById('tituloHistorialEquipo').innerText;
+                abrirHistorial(id, nombre);
+            } else {
+                alert("Error al guardar historial");
+            }
+        };
+    }
+
+    // --- OTROS FORMULARIOS ---
     document.getElementById('formCliente').onsubmit = async (e) => {
         e.preventDefault();
-        const data = { nombre: e.target.nombre.value, direccion: e.target.direccion.value };
-        const res = await fetch('/api/clientes', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+        const res = await fetch('/api/clientes', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ nombre: e.target.nombre.value, direccion: e.target.direccion.value })
+        });
         if(res.ok) window.location.reload();
-        else alert("Error al crear cliente");
     };
 
     const modalEquipo = new bootstrap.Modal(document.getElementById('modalEquipo'));

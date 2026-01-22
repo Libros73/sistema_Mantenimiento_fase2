@@ -10,7 +10,7 @@ from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
 import qrcode
 import io
-import base64 # Importamos base64 para manejar imágenes si es necesario decodificar
+import base64 
 
 app = Flask(__name__)
 app.secret_key = 'super_secreto_clave_segura_gnb'
@@ -61,7 +61,6 @@ class Equipo(db.Model):
     ubicacion = db.Column(db.String(100), nullable=False)
     estado = db.Column(db.String(20), default="Operativo")
     observaciones = db.Column(db.String(300), nullable=True)
-    # NUEVA COLUMNA FOTO (Text para soportar Base64 largo)
     foto = db.Column(db.Text, nullable=True) 
     cliente_id = db.Column(db.Integer, db.ForeignKey('cliente.id'), nullable=False)
     mantenimientos = db.relationship('Mantenimiento', backref='equipo_rel', lazy=True, cascade="all, delete-orphan")
@@ -75,7 +74,7 @@ class Equipo(db.Model):
             'ubicacion': self.ubicacion,
             'estado': self.estado,
             'observaciones': self.observaciones,
-            'foto': self.foto, # Enviamos la foto al frontend
+            'foto': self.foto,
             'cliente_id': self.cliente_id
         }
 
@@ -132,13 +131,12 @@ def dashboard():
     cliente_actual = Cliente.query.get(cliente_id) if cliente_id else None
     return render_template('index.html', equipos=equipos, clientes=clientes, cliente_actual=cliente_actual, user=current_user)
 
-# --- SETUP (Reinicia DB si es necesario) ---
+# --- SETUP ---
 @app.route('/setup-fase2')
 def setup_db():
     try:
         with app.app_context():
             db.create_all()
-            # Crear usuarios y clientes base si no existen
             if not User.query.filter_by(username='admin').first():
                 admin = User(username='admin'); admin.set_password('admin123'); db.session.add(admin)
             if not User.query.filter_by(username='invitado').first():
@@ -146,7 +144,7 @@ def setup_db():
             if not Cliente.query.first():
                 db.session.add(Cliente(nombre="Cliente Demo 1", direccion="Sede Principal"))
             db.session.commit()
-            return "✅ SETUP COMPLETO (Estructura de Imágenes lista)."
+            return "✅ SETUP COMPLETO."
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
@@ -189,9 +187,6 @@ def crear_cliente():
     db.session.commit()
     return jsonify({"mensaje": "Ok"})
 
-# --- API EQUIPOS (ACTUALIZADA CON FOTOS) ---
-# --- EN app.py ---
-
 @app.route('/api/equipos', methods=['POST'])
 @login_required
 def agregar_equipo():
@@ -204,10 +199,9 @@ def agregar_equipo():
             tipo=data['tipo'], 
             serial=data['serial'], 
             ubicacion=data['ubicacion'],
-            # AQUI ESTABA EL ERROR: Faltaba leer el estado
-            estado=data.get('estado', 'Operativo'), # <--- LINEA AGREGADA
+            estado=data.get('estado', 'Operativo'),
             observaciones=data.get('observaciones', ''),
-            foto=data.get('foto', '') 
+            foto=data.get('foto', '')
         )
         db.session.add(nuevo)
         db.session.commit()
@@ -230,10 +224,7 @@ def editar_equipo(id):
     equipo.estado = data.get('estado', equipo.estado)
     equipo.observaciones = data.get('observaciones', '')
     equipo.cliente_id = data['cliente_id']
-    
-    # Solo actualizamos la foto si enviaron una nueva (si viene vacía, conservamos la anterior)
-    if data.get('foto'):
-        equipo.foto = data['foto']
+    if data.get('foto'): equipo.foto = data['foto']
 
     db.session.commit()
     return jsonify({"mensaje": "Actualizado"})
@@ -259,54 +250,66 @@ def agregar_mant():
 def ver_mant(id):
     return jsonify([m.to_dict() for m in Mantenimiento.query.filter_by(equipo_id=id).order_by(Mantenimiento.fecha.desc()).all()])
 
-# --- PDF (Actualizado para mostrar si tiene foto) ---
+# --- PDF (CORREGIDO: Títulos Dinámicos + Fotos) ---
 @app.route('/exportar-pdf')
 @login_required
 def exportar_pdf():
     cliente_id = request.args.get('cliente_id')
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
-    equipos = Cliente.query.get(cliente_id).equipos if cliente_id else Equipo.query.all()
+    c.setTitle("Reporte de Mantenimiento")
+
+    # --- LÓGICA DE TÍTULOS RESTAURADA ---
+    titulo_reporte = "Reporte Global de Activos"
+    subtitulo = "Listado General"
+    equipos = []
+
+    if cliente_id:
+        cliente = Cliente.query.get(cliente_id)
+        if cliente:
+            titulo_reporte = f"Cliente: {cliente.nombre}"
+            subtitulo = f"Sede: {cliente.direccion or 'Principal'}"
+            equipos = cliente.equipos
+    else:
+        equipos = Equipo.query.all()
+
+    # --- ENCABEZADO MEJORADO ---
+    c.setFont("Helvetica-Bold", 18)
+    c.drawString(50, 750, titulo_reporte)
+    c.setFont("Helvetica", 12)
+    c.drawString(50, 735, subtitulo)
+    c.line(50, 725, 550, 725) # Línea separadora
     
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, 750, "Reporte de Activos")
-    y = 700
+    y = 670
+    
     for eq in equipos:
         if y < 100: c.showPage(); y = 750
+        
+        # QR
         qr = qrcode.make(f"ID:{eq.id}-SN:{eq.serial}")
         qr_mem = io.BytesIO(); qr.save(qr_mem, format="PNG"); qr_mem.seek(0)
         c.drawImage(ImageReader(qr_mem), 50, y-10, 40, 40)
         
+        # Textos
         c.setFont("Helvetica-Bold", 12)
         c.drawString(100, y+20, eq.nombre)
         c.setFont("Helvetica", 10)
+        
+        # Indicador de foto
         texto_extra = " (Con Foto)" if eq.foto else ""
         c.drawString(100, y+5, f"{eq.tipo} | SN: {eq.serial} {texto_extra}")
+        
+        # Estado (Color)
+        if eq.estado == 'Falla': c.setFillColor(colors.red)
+        else: c.setFillColor(colors.green)
+        c.drawString(450, y+20, eq.estado)
+        c.setFillColor(colors.black)
+
         y -= 60
+
     c.save()
     buffer.seek(0)
     return send_file(buffer, as_attachment=True, download_name="reporte.pdf", mimetype='application/pdf')
-
-# --- RUTA DE EMERGENCIA PARA RENDER (SOLO USAR UNA VEZ) ---
-# @app.route('/reset-db-nuclear')
-# def reset_nuclear():
-#     try:
-#         # ¡CUIDADO! Esto borra TODA la base de datos
-#         db.drop_all()
-#         db.create_all()
-        
-#         # Volvemos a crear al Admin y al Invitado
-#         admin = User(username='admin'); admin.set_password('admin123'); db.session.add(admin)
-#         guest = User(username='invitado'); guest.set_password('invitado'); db.session.add(guest)
-        
-#         # Creamos un cliente de prueba
-#         c1 = Cliente(nombre="Cliente Reiniciado", direccion="Base de Datos Nueva")
-#         db.session.add(c1)
-        
-#         db.session.commit()
-#         return "☢️ BASE DE DATOS RESETEADA: Ahora ya soporta FOTOS."
-#     except Exception as e:
-#         return f"Error: {str(e)}"
 
 if __name__ == '__main__':
     with app.app_context(): db.create_all()

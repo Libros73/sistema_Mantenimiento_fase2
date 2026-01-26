@@ -16,7 +16,7 @@ import pytz
 app = Flask(__name__)
 app.secret_key = 'super_secreto_clave_segura_gnb'
 
-# --- CONFIGURACIÓN BD ---
+# --- CONFIGURACIÓN BDyyy ---
 database_url = os.environ.get('DATABASE_URL')
 if database_url:
     if database_url.startswith("postgres://"):
